@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{ Arc, Mutex };
 use std::time::SystemTime;
 
 use eframe::egui;
@@ -10,7 +10,7 @@ fn main() {
     let ret = eframe::run_native(
         "ADBX",
         native_options,
-        Box::new(|cc| Box::new(MyEguiApp::new(cc))),
+        Box::new(|cc| Box::new(MyEguiApp::new(cc)))
     );
     match ret {
         Ok(_) => {}
@@ -29,8 +29,9 @@ struct MyEguiApp {
     time_point: SystemTime,
     frame_count: usize,
     last_fps: usize,
+    frame_limit: usize,
 
-    layouter: Box<dyn Fn(&egui::Ui, &str, f32) -> Arc<egui::Galley>>,
+    layout_job: egui::text::LayoutJob,
 
     fliter_buffer: String,
     fliter: Option<String>,
@@ -48,172 +49,6 @@ impl MyEguiApp {
         // get adb devices
         let adb_devices = adbx::get_adb_devices(adb_path);
 
-        let layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-            let mut layout_job: egui::text::LayoutJob = egui::text::LayoutJob::default();
-            layout_job.wrap.max_width = wrap_width;
-
-            // for each line
-
-            for line in string.lines() {
-                if line.len() < 18 {
-                    continue;
-                }
-                // if first word is not number, then it is not a time stamp
-                if !line.starts_with(|c: char| c.is_digit(10)) {
-                    layout_job.append(
-                        line,
-                        0.0,
-                        egui::TextFormat {
-                            font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                            color: egui::Color32::GRAY,
-                            ..Default::default()
-                        },
-                    );
-                    layout_job.append("\n", 0.0, egui::TextFormat::default());
-                    continue;
-                }
-
-                let l_date = &line[0..5];
-                // split line by space or double space for 6 parts
-                let others = &line[6..];
-                let mut split_indexes = Vec::new();
-                let mut last_is_space = true;
-                for (i, c) in others.chars().enumerate() {
-                    if c != ' ' {
-                        if last_is_space {
-                            split_indexes.push(i);
-                        }
-                        last_is_space = false;
-                    } else {
-                        if !last_is_space {
-                            split_indexes.push(i);
-                        }
-                        last_is_space = true;
-                    }
-                    if split_indexes.len() == 11 {
-                        break;
-                    }
-                }
-                if split_indexes.len() < 11 {
-                    layout_job.append(
-                        line,
-                        0.0,
-                        egui::TextFormat {
-                            font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                            color: egui::Color32::GRAY,
-                            ..Default::default()
-                        },
-                    );
-                    layout_job.append("\n", 0.0, egui::TextFormat::default());
-                    continue;
-                }
-
-                let l_time = &others[split_indexes[0]..split_indexes[1]];
-                let l_pid = &others[split_indexes[2]..split_indexes[3]];
-                // ensure pid length is 5
-                let l_pid = format!("{: <width$}", l_pid, width = 5);
-                let l_pid = l_pid.as_str();
-                let l_tid = &others[split_indexes[4]..split_indexes[5]];
-                // ensure tid length is 5
-                let l_tid = format!("{: <width$}", l_tid, width = 5);
-                let l_tid = l_tid.as_str();
-
-                let l_level = &others[split_indexes[6]..split_indexes[7]];
-                let l_tag = &others[split_indexes[8]..split_indexes[9]];
-                // limit tag length and extend it with spaces
-                let limit = 20;
-                let l_tag = format!("{: <width$}", l_tag, width = limit);
-                let l_tag = l_tag.as_str();
-
-                let l_message = &others[split_indexes[10]..];
-
-                let data_color = egui::Color32::from_rgb(0x66, 0x99, 0x99);
-                let time_color = egui::Color32::from_rgb(0x33, 0x99, 0x99);
-                let pid_color = egui::Color32::from_rgb(0xcc, 0xcc, 0xcc);
-                let tid_color = egui::Color32::from_rgb(0x99, 0xcc, 0x99);
-
-                let tag_color = adbx::get_color_from_string(l_tag);
-                let color = match l_level.chars().nth(0).unwrap() {
-                    'V' => egui::Color32::LIGHT_GRAY,
-                    'D' => egui::Color32::LIGHT_BLUE,
-                    'I' => egui::Color32::WHITE,
-                    'W' => egui::Color32::YELLOW,
-                    'E' => egui::Color32::LIGHT_RED,
-                    _ => egui::Color32::LIGHT_GRAY,
-                };
-
-                layout_job.append(
-                    l_date,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                        color: data_color,
-                        ..Default::default()
-                    },
-                );
-                layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-                layout_job.append(
-                    l_time,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                        color: time_color,
-                        ..Default::default()
-                    },
-                );
-                layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-                layout_job.append(
-                    l_pid,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                        color: pid_color,
-                        ..Default::default()
-                    },
-                );
-                layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-                layout_job.append(
-                    l_tid,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                        color: tid_color,
-                        ..Default::default()
-                    },
-                );
-                layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-                layout_job.append(
-                    l_tag,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                        italics: true,
-                        color: tag_color,
-                        ..Default::default()
-                    },
-                );
-                layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-                layout_job.append(
-                    l_message,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                        color,
-                        ..Default::default()
-                    },
-                );
-
-                layout_job.append("\n", 0.0, egui::TextFormat::default());
-            }
-
-            ui.fonts(|f| f.layout_job(layout_job))
-        };
-
         MyEguiApp {
             adb_path: adb_path.to_string(),
             adb_devices,
@@ -223,8 +58,9 @@ impl MyEguiApp {
             time_point: SystemTime::now(),
             frame_count: 0,
             last_fps: 0,
+            frame_limit: 60,
 
-            layouter: Box::new(layouter),
+            layout_job: egui::text::LayoutJob::default(),
 
             fliter_buffer: String::new(),
             fliter: None,
@@ -232,8 +68,7 @@ impl MyEguiApp {
     }
 
     pub fn check_adb_devices(&mut self) -> bool {
-        let last_device = self
-            .adb_devices
+        let last_device = self.adb_devices
             .get(self.selected_device)
             .unwrap_or(&String::new())
             .clone();
@@ -255,19 +90,154 @@ impl MyEguiApp {
         }
         true
     }
+
+    pub fn highlighter(string: &str, layout_job :&mut egui::text::LayoutJob) {
+        // for each line
+        for line in string.lines() {
+            if line.len() < 18 {
+                continue;
+            }
+            // if first word is not number, then it is not a time stamp
+            if !line.starts_with(|c: char| c.is_digit(10)) {
+                layout_job.append(line, 0.0, egui::TextFormat {
+                    font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                    color: egui::Color32::GRAY,
+                    ..Default::default()
+                });
+                layout_job.append("\n", 0.0, egui::TextFormat::default());
+                continue;
+            }
+
+            let l_date = &line[0..5];
+            // split line by space or double space for 6 parts
+            let others = &line[6..];
+            let mut split_indexes = Vec::new();
+            let mut last_is_space = true;
+            for (i, c) in others.chars().enumerate() {
+                if c != ' ' {
+                    if last_is_space {
+                        split_indexes.push(i);
+                    }
+                    last_is_space = false;
+                } else {
+                    if !last_is_space {
+                        split_indexes.push(i);
+                    }
+                    last_is_space = true;
+                }
+                if split_indexes.len() == 11 {
+                    break;
+                }
+            }
+            if split_indexes.len() < 11 {
+                layout_job.append(line, 0.0, egui::TextFormat {
+                    font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                    color: egui::Color32::GRAY,
+                    ..Default::default()
+                });
+                layout_job.append("\n", 0.0, egui::TextFormat::default());
+                continue;
+            }
+
+            let l_time = &others[split_indexes[0]..split_indexes[1]];
+            let l_pid = &others[split_indexes[2]..split_indexes[3]];
+            // ensure pid length is 5
+            let l_pid = format!("{: <width$}", l_pid, width = 5);
+            let l_pid = l_pid.as_str();
+            let l_tid = &others[split_indexes[4]..split_indexes[5]];
+            // ensure tid length is 5
+            let l_tid = format!("{: <width$}", l_tid, width = 5);
+            let l_tid = l_tid.as_str();
+
+            let l_level = &others[split_indexes[6]..split_indexes[7]];
+            let l_tag = &others[split_indexes[8]..split_indexes[9]].trim_end_matches(":");
+            // limit tag length and extend it with spaces
+            let limit = 20;
+            let l_tag = format!("{: <width$}", l_tag, width = limit);
+            let l_tag = l_tag.as_str();
+
+            let l_message = &others[split_indexes[10]..];
+
+            let data_color = egui::Color32::from_rgb(0x66, 0x99, 0x99);
+            let time_color = egui::Color32::from_rgb(0x33, 0x99, 0x99);
+            let pid_color = egui::Color32::from_rgb(0xcc, 0xcc, 0xcc);
+            let tid_color = egui::Color32::from_rgb(0x99, 0xcc, 0x99);
+
+            let tag_color = adbx::get_color_from_string(l_tag);
+            let color = match l_level.chars().nth(0).unwrap() {
+                'V' => egui::Color32::LIGHT_GRAY,
+                'D' => egui::Color32::LIGHT_BLUE,
+                'I' => egui::Color32::WHITE,
+                'W' => egui::Color32::YELLOW,
+                'E' => egui::Color32::LIGHT_RED,
+                _ => egui::Color32::LIGHT_GRAY,
+            };
+
+            layout_job.append(l_date, 0.0, egui::TextFormat {
+                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                color: data_color,
+                ..Default::default()
+            });
+            layout_job.append("  ", 0.0, egui::TextFormat::default());
+
+            layout_job.append(l_time, 0.0, egui::TextFormat {
+                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                color: time_color,
+                ..Default::default()
+            });
+            layout_job.append("  ", 0.0, egui::TextFormat::default());
+
+            layout_job.append(l_pid, 0.0, egui::TextFormat {
+                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                color: pid_color,
+                ..Default::default()
+            });
+            layout_job.append("  ", 0.0, egui::TextFormat::default());
+
+            layout_job.append(l_tid, 0.0, egui::TextFormat {
+                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                color: tid_color,
+                ..Default::default()
+            });
+            layout_job.append("  ", 0.0, egui::TextFormat::default());
+
+            layout_job.append(l_tag, 0.0, egui::TextFormat {
+                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                italics: true,
+                color: tag_color,
+                ..Default::default()
+            });
+            layout_job.append("  ", 0.0, egui::TextFormat::default());
+
+            layout_job.append(l_message, 0.0, egui::TextFormat {
+                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                color,
+                ..Default::default()
+            });
+
+            layout_job.append("\n", 0.0, egui::TextFormat::default());
+
+        }
+    }
 }
 
 impl App for MyEguiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let time_point = SystemTime::now();
+
         self.frame_count += 1;
-        let time_elapsed = SystemTime::now().duration_since(self.time_point).unwrap();
+        let time_elapsed = time_point.duration_since(self.time_point).unwrap();
         if time_elapsed.as_secs_f32() > 1.0 {
             self.last_fps = self.frame_count;
             self.time_point = SystemTime::now();
             self.frame_count = 0;
         }
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Grid::new("adb_grid")
+            if self.frame_count % 120 == 0 {
+                //self.check_adb_devices();
+            }
+            egui::Grid
+                ::new("adb_grid")
                 .striped(true)
                 .min_col_width(10.0)
                 .max_col_width(500.0)
@@ -280,7 +250,8 @@ impl App for MyEguiApp {
                     ui.text_edit_singleline(&mut self.adb_path);
                 });
 
-            egui::Grid::new("device_grid")
+            egui::Grid
+                ::new("device_grid")
                 .striped(true)
                 .spacing(egui::vec2(10.0, 10.0))
                 .show(ui, |ui| {
@@ -298,10 +269,7 @@ impl App for MyEguiApp {
                     // draw a combo box to select device
                     let devices = self.adb_devices.clone();
                     for (i, device) in devices.iter().enumerate() {
-                        if ui
-                            .selectable_label(self.selected_device == i, device)
-                            .clicked()
-                        {
+                        if ui.selectable_label(self.selected_device == i, device).clicked() {
                             self.check_adb_devices();
                             if i != self.selected_device {
                                 self.selected_device = i;
@@ -312,7 +280,8 @@ impl App for MyEguiApp {
                     }
                 });
 
-            egui::Grid::new("logcat_grid")
+            egui::Grid
+                ::new("logcat_grid")
                 .min_col_width(10.0)
                 .max_col_width(100.0)
                 .striped(true)
@@ -328,10 +297,14 @@ impl App for MyEguiApp {
                             // run adb logcat
                             self.adb_logcat_out_handle = adbx::get_adb_logcat_handler(
                                 &self.adb_path,
-                                &self.adb_devices[self.selected_device],
+                                &self.adb_devices[self.selected_device]
                             );
                             // print command
-                            println!("> {} -s {} logcat", &self.adb_path, &self.adb_devices[self.selected_device]);
+                            println!(
+                                "> {} -s {} logcat",
+                                &self.adb_path,
+                                &self.adb_devices[self.selected_device]
+                            );
                         }
                     }
                     // call logcat -c
@@ -342,13 +315,14 @@ impl App for MyEguiApp {
                         // run adb logcat
                         adbx::clear_adb_logcat(
                             &self.adb_path,
-                            &self.adb_devices[self.selected_device],
+                            &self.adb_devices[self.selected_device]
                         );
                         self.adb_logcat_out_buffer.clear();
                         // print command
                         println!(
                             "> {} -s {} logcat -c",
-                            &self.adb_path, &self.adb_devices[self.selected_device]
+                            &self.adb_path,
+                            &self.adb_devices[self.selected_device]
                         );
                     }
                     // show a text edit to fliter logcat
@@ -373,16 +347,55 @@ impl App for MyEguiApp {
                 vec.clear();
             }
 
-            egui::ScrollArea::vertical()
+            let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+                let mut layout_job = egui::text::LayoutJob::default();
+                MyEguiApp::highlighter(string, &mut layout_job);
+                layout_job.wrap.max_width = wrap_width;
+
+                ui.fonts(|f| f.layout_job(layout_job))
+            };
+
+            egui::ScrollArea
+                ::vertical()
                 .auto_shrink([true, true])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
+                    let mut style = egui::Style::default();
+                    style.visuals.dark_mode = true;
+                    ui.set_style(style);
                     ui.add(
-                        egui::TextEdit::multiline(&mut self.adb_logcat_out_buffer)
+                        egui::TextEdit
+                            ::multiline(&mut self.adb_logcat_out_buffer)
                             .desired_width(ui.available_width())
-                            .layouter(&mut self.layouter),
+                            .layouter(&mut layouter)
                     );
                 });
+            // let text_style = egui::TextStyle::Body;
+            // let row_height = ui.text_style_height(&text_style);
+            // egui::ScrollArea
+            //     ::vertical()
+            //     .auto_shrink([true, true])
+            //     .stick_to_bottom(true)
+            //     .show_rows(ui, row_height, 10_000, |ui, row_range| {
+            //         let mut style = egui::Style::default();
+            //         style.visuals.dark_mode = true;
+            //         ui.set_style(style);
+
+            //         ui.add(
+            //             egui::TextEdit
+            //                 ::multiline(&mut self.adb_logcat_out_buffer)
+            //                 .desired_width(ui.available_width())
+            //                 .layouter(&mut self.layouter)
+            //         );
+            //     });
         });
+
+        // if time is not up to 1/60 second, then wait
+        let time_elapsed = SystemTime::now().duration_since(time_point).unwrap();
+        let time_abundance = 1.0 / (self.frame_limit as f32) - time_elapsed.as_secs_f32();
+        if time_abundance > 0.01 {
+            //println!("time_used: {}, time_abundance: {}", time_elapsed.as_secs_f32(), time_abundance);
+            std::thread::sleep(std::time::Duration::from_secs_f32(time_abundance - 0.01));
+        }
     }
 }
