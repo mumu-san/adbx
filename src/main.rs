@@ -20,78 +20,21 @@ fn main() {
     }
 }
 
-struct MyEguiApp {
-    adb_path: String,
-    adb_devices: Vec<String>,
-    adb_logcat_out_handle: Option<Arc<Mutex<Vec<u8>>>>,
-    adb_logcat_out_buffer: String,
-    selected_device: usize,
-    time_point: SystemTime,
-    frame_count: usize,
-    last_fps: usize,
-    frame_limit: usize,
-
-    layout_job: egui::text::LayoutJob,
-
+struct MyHighlighter {
     fliter_buffer: String,
     fliter: Option<String>,
 }
 
-impl MyEguiApp {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
-        // Restore app state using cc.storage (requires the "persistence" feature).
-        // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
-        // for e.g. egui::PaintCallback.
-
-        // set adb path
-        let adb_path = "D:/Temp/platform-tools/adb.exe";
-        // get adb devices
-        let adb_devices = adbx::get_adb_devices(adb_path);
-
-        MyEguiApp {
-            adb_path: adb_path.to_string(),
-            adb_devices,
-            adb_logcat_out_handle: None,
-            adb_logcat_out_buffer: String::with_capacity(1024 * 1024 * 4),
-            selected_device: 0,
-            time_point: SystemTime::now(),
-            frame_count: 0,
-            last_fps: 0,
-            frame_limit: 60,
-
-            layout_job: egui::text::LayoutJob::default(),
-
+impl MyHighlighter {
+    fn new() -> Self {
+        MyHighlighter {
             fliter_buffer: String::new(),
             fliter: None,
         }
     }
-
-    pub fn check_adb_devices(&mut self) -> bool {
-        let last_device = self.adb_devices
-            .get(self.selected_device)
-            .unwrap_or(&String::new())
-            .clone();
-
-        self.adb_devices = adbx::get_adb_devices(&self.adb_path);
-
-        let new_device = self.adb_devices.get(self.selected_device);
-
-        if last_device.is_empty() && new_device.is_none() {
-            println!("device not found");
-            return false;
-        }
-        if &last_device != new_device.unwrap() {
-            println!("device changed");
-            self.adb_logcat_out_buffer.clear();
-            self.selected_device = 0;
-            self.adb_logcat_out_handle = None;
-            return false;
-        }
-        true
-    }
-
-    pub fn highlighter(string: &str, layout_job :&mut egui::text::LayoutJob) {
+    pub fn highlighter(&mut self, string: &str) -> egui::text::LayoutJob {
+        let mut layout_job = egui::text::LayoutJob::default();
+        //println!("string len: {}", string.len());
         // for each line
         for line in string.lines() {
             if line.len() < 18 {
@@ -216,8 +159,74 @@ impl MyEguiApp {
             });
 
             layout_job.append("\n", 0.0, egui::TextFormat::default());
-
         }
+        layout_job
+    }
+}
+
+struct MyEguiApp {
+    adb_path: String,
+    adb_devices: Vec<String>,
+    adb_logcat_out_handle: Option<Arc<Mutex<Vec<u8>>>>,
+    adb_logcat_out_buffer: String,
+    selected_device: usize,
+    time_point: SystemTime,
+    frame_count: usize,
+    last_fps: usize,
+    frame_limit: usize,
+
+    highlighter: MyHighlighter,
+}
+
+impl MyEguiApp {
+    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
+        // Restore app state using cc.storage (requires the "persistence" feature).
+        // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
+        // for e.g. egui::PaintCallback.
+
+        // set adb path
+        let adb_path = "platform-tools/adb.exe";
+        // get adb devices
+        let adb_devices = adbx::get_adb_devices(adb_path);
+
+        MyEguiApp {
+            adb_path: adb_path.to_string(),
+            adb_devices,
+            adb_logcat_out_handle: None,
+            adb_logcat_out_buffer: String::with_capacity(1024 * 1024 * 4),
+            selected_device: 0,
+            time_point: SystemTime::now(),
+            frame_count: 0,
+            last_fps: 0,
+            frame_limit: 60,
+
+            highlighter: MyHighlighter::new(),
+        }
+    }
+
+    pub fn check_adb_devices(&mut self) -> bool {
+        let last_device = self.adb_devices
+            .get(self.selected_device)
+            .unwrap_or(&String::new())
+            .clone();
+
+        self.adb_devices = adbx::get_adb_devices(&self.adb_path);
+
+        let new_device = self.adb_devices.get(self.selected_device);
+
+        if last_device.is_empty() && new_device.is_none() {
+            println!("device not found");
+            return false;
+        }
+        if &last_device != new_device.unwrap() {
+            println!("device changed");
+            self.adb_logcat_out_buffer.clear();
+            self.selected_device = 0;
+            self.adb_logcat_out_handle = None;
+            return false;
+        }
+        true
     }
 }
 
@@ -348,46 +357,66 @@ impl App for MyEguiApp {
             }
 
             let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                let mut layout_job = egui::text::LayoutJob::default();
-                MyEguiApp::highlighter(string, &mut layout_job);
+                let mut layout_job = self.highlighter.highlighter(string);
                 layout_job.wrap.max_width = wrap_width;
 
                 ui.fonts(|f| f.layout_job(layout_job))
             };
 
-            egui::ScrollArea
-                ::vertical()
-                .auto_shrink([true, true])
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    let mut style = egui::Style::default();
-                    style.visuals.dark_mode = true;
-                    ui.set_style(style);
-                    ui.add(
-                        egui::TextEdit
-                            ::multiline(&mut self.adb_logcat_out_buffer)
-                            .desired_width(ui.available_width())
-                            .layouter(&mut layouter)
-                    );
-                });
-            // let text_style = egui::TextStyle::Body;
-            // let row_height = ui.text_style_height(&text_style);
             // egui::ScrollArea
             //     ::vertical()
             //     .auto_shrink([true, true])
             //     .stick_to_bottom(true)
-            //     .show_rows(ui, row_height, 10_000, |ui, row_range| {
+            //     .show(ui, |ui| {
             //         let mut style = egui::Style::default();
             //         style.visuals.dark_mode = true;
             //         ui.set_style(style);
-
             //         ui.add(
             //             egui::TextEdit
             //                 ::multiline(&mut self.adb_logcat_out_buffer)
             //                 .desired_width(ui.available_width())
-            //                 .layouter(&mut self.layouter)
+            //                 .layouter(&mut layouter)
             //         );
             //     });
+
+            let text_style = egui::TextStyle::Body;
+            let row_height = ui.text_style_height(&text_style);
+            let lines = self.adb_logcat_out_buffer.lines();
+            let total_rows = lines.count() + 1;
+            egui::ScrollArea
+                ::vertical()
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .max_height(ui.available_size().y - 10.0)
+                .show_rows(ui, row_height, total_rows, |ui, row_range| {
+                    let mut style = egui::Style::default();
+                    style.visuals.dark_mode = true;
+                    ui.set_style(style);
+
+                    let mut text_show = String::new();
+                    let mut i = row_range.start;
+                    for line in self.adb_logcat_out_buffer.lines().skip(row_range.start) {
+                        if i >= row_range.end {
+                            break;
+                        }
+                        text_show.push_str(line);
+                        text_show.push_str("\n");
+                        i += 1;
+                    }
+                    let lack_rows = row_range.end - i;
+                    if lack_rows > 0 {
+                        for _ in 0..lack_rows {
+                            text_show.push_str("\n\n");
+                        }
+                    }
+
+                    ui.add(
+                        egui::TextEdit
+                            ::multiline(&mut text_show)
+                            .desired_width(ui.available_width())
+                            .layouter(&mut layouter)
+                    );
+                });
         });
 
         // if time is not up to 1/60 second, then wait
@@ -397,5 +426,6 @@ impl App for MyEguiApp {
             //println!("time_used: {}, time_abundance: {}", time_elapsed.as_secs_f32(), time_abundance);
             std::thread::sleep(std::time::Duration::from_secs_f32(time_abundance - 0.01));
         }
+        ctx.request_repaint();
     }
 }
