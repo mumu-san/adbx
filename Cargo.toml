@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 eframe = "0.24.0"
 egui = "0.24.0"
+egui_code_editor = "0.1.9"
+egui_logger = "0.4.1"

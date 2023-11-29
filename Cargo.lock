@@ -95,6 +95,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "egui_code_editor",
+ "egui_logger",
 ]
 
 [[package]]
@@ -832,6 +834,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_code_editor"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63490ee65e16e072fa62a29db3a3c3057cbfce1fcf9c5909f1af8a6f9d642b28"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui_glow"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -844,6 +855,18 @@ dependencies = [
  "memoffset 0.7.1",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "egui_logger"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "503d989b82016134d7f45032f9469adb50ed731c0d67de11f1758ba223a76d07"
+dependencies = [
+ "egui",
+ "log",
+ "once_cell",
+ "regex",
 ]
 
 [[package]]

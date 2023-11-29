@@ -7,6 +7,7 @@ use eframe::App;
 fn main() {
     let mut native_options = eframe::NativeOptions::default();
     native_options.viewport.inner_size = Some(egui::Vec2::new(1280.0, 720.0));
+    native_options.follow_system_theme = false;
     let ret = eframe::run_native(
         "ADBX",
         native_options,
@@ -23,6 +24,7 @@ fn main() {
 struct MyHighlighter {
     fliter_buffer: String,
     fliter: Option<String>,
+    line_count: usize,
 }
 
 impl MyHighlighter {
@@ -30,16 +32,27 @@ impl MyHighlighter {
         MyHighlighter {
             fliter_buffer: String::new(),
             fliter: None,
+            line_count: 0,
         }
     }
     pub fn highlighter(&mut self, string: &str) -> egui::text::LayoutJob {
         let mut layout_job = egui::text::LayoutJob::default();
         //println!("string len: {}", string.len());
+        self.line_count = 0;
         // for each line
         for line in string.lines() {
             if line.len() < 18 {
                 continue;
             }
+
+            if self.fliter.is_some() {
+                if !line.contains(self.fliter.as_ref().unwrap()) {
+                    continue;
+                }
+            }
+
+            self.line_count += 1;
+
             // if first word is not number, then it is not a time stamp
             if !line.starts_with(|c: char| c.is_digit(10)) {
                 layout_job.append(line, 0.0, egui::TextFormat {
@@ -334,15 +347,15 @@ impl App for MyEguiApp {
                             &self.adb_devices[self.selected_device]
                         );
                     }
-                    // show a text edit to fliter logcat
-                    // ui.text_edit_singleline(&mut self.fliter_buffer);
-                    // if ui.button("Fliter").clicked() {
-                    //     if self.fliter_buffer.is_empty() {
-                    //         self.fliter = None;
-                    //     } else {
-                    //         self.fliter = Some(self.fliter_buffer.clone());
-                    //     }
-                    // }
+                    //show a text edit to fliter logcat
+                    ui.text_edit_singleline(&mut self.highlighter.fliter_buffer);
+                    if ui.button("Fliter").clicked() {
+                        if self.highlighter.fliter_buffer.is_empty() {
+                            self.highlighter.fliter = None;
+                        } else {
+                            self.highlighter.fliter = Some(self.highlighter.fliter_buffer.clone());
+                        }
+                    }
                 });
 
             if self.adb_logcat_out_handle.is_some() {
@@ -355,13 +368,6 @@ impl App for MyEguiApp {
                 //println!("buffer len: {}", self.adb_logcat_out_buffer.len());
                 vec.clear();
             }
-
-            let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                let mut layout_job = self.highlighter.highlighter(string);
-                layout_job.wrap.max_width = wrap_width;
-
-                ui.fonts(|f| f.layout_job(layout_job))
-            };
 
             // egui::ScrollArea
             //     ::vertical()
@@ -379,35 +385,45 @@ impl App for MyEguiApp {
             //         );
             //     });
 
-            let text_style = egui::TextStyle::Body;
-            let row_height = ui.text_style_height(&text_style);
-            let lines = self.adb_logcat_out_buffer.lines();
-            let total_rows = lines.count() + 1;
+            //             egui_code_editor::CodeEditor::default()
+            //   .id_source("code editor")
+            //   .with_rows(12)
+            //   .with_fontsize(14.0)
+            //   .with_numlines(false)
+            //   .show(ui, &mut self.adb_logcat_out_buffer);
+            let row_height = 14.0;
+            let total_rows = self.highlighter.line_count + 1;
+
+            let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+                let mut layout_job = self.highlighter.highlighter(string);
+                layout_job.wrap.max_width = wrap_width;
+
+                ui.fonts(|f| f.layout_job(layout_job))
+            };
             egui::ScrollArea
                 ::vertical()
                 .auto_shrink([false, false])
                 .stick_to_bottom(true)
-                .max_height(ui.available_size().y - 10.0)
                 .show_rows(ui, row_height, total_rows, |ui, row_range| {
-                    let mut style = egui::Style::default();
-                    style.visuals.dark_mode = true;
-                    ui.set_style(style);
-
                     let mut text_show = String::new();
-                    let mut i = row_range.start;
-                    for line in self.adb_logcat_out_buffer.lines().skip(row_range.start) {
-                        if i >= row_range.end {
-                            break;
-                        }
+
+                    //ui.selectable_label(checked, text);
+
+                    for line in self.adb_logcat_out_buffer
+                        .lines()
+                        .skip(row_range.start)
+                        .take(row_range.end - row_range.start) {
                         text_show.push_str(line);
                         text_show.push_str("\n");
-                        i += 1;
-                    }
-                    let lack_rows = row_range.end - i;
-                    if lack_rows > 0 {
-                        for _ in 0..lack_rows {
-                            text_show.push_str("\n\n");
-                        }
+                        //let wt: egui::WidgetText = layouter(ui, line, ui.available_width()).into();
+                        //ui.label(wt);
+                        // let mut line = line.to_string();
+                        // let st: egui::Response = ui.add(
+                        //     egui::TextEdit
+                        //         ::singleline(&mut line.as_ref())
+                        //         .desired_width(ui.available_width())
+                        //         .layouter(&mut layouter)
+                        //);
                     }
 
                     ui.add(
