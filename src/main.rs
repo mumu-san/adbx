@@ -1,8 +1,13 @@
-use std::sync::{ Arc, Mutex };
+mod log;
+mod highlighter;
+mod logcat_worker;
+
 use std::time::SystemTime;
 
 use eframe::egui;
 use eframe::App;
+
+use logcat_worker::LogcatWorker;
 
 fn main() {
     let mut native_options = eframe::NativeOptions::default();
@@ -21,174 +26,19 @@ fn main() {
     }
 }
 
-struct MyHighlighter {
-    fliter_buffer: String,
-    fliter: Option<String>,
-    line_count: usize,
-}
-
-impl MyHighlighter {
-    fn new() -> Self {
-        MyHighlighter {
-            fliter_buffer: String::new(),
-            fliter: None,
-            line_count: 0,
-        }
-    }
-    pub fn highlighter(&mut self, string: &str) -> egui::text::LayoutJob {
-        let mut layout_job = egui::text::LayoutJob::default();
-        //println!("string len: {}", string.len());
-        self.line_count = 0;
-        // for each line
-        for line in string.lines() {
-            if line.len() < 18 {
-                continue;
-            }
-
-            if self.fliter.is_some() {
-                if !line.contains(self.fliter.as_ref().unwrap()) {
-                    continue;
-                }
-            }
-
-            self.line_count += 1;
-
-            // if first word is not number, then it is not a time stamp
-            if !line.starts_with(|c: char| c.is_digit(10)) {
-                layout_job.append(line, 0.0, egui::TextFormat {
-                    font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                    color: egui::Color32::GRAY,
-                    ..Default::default()
-                });
-                layout_job.append("\n", 0.0, egui::TextFormat::default());
-                continue;
-            }
-
-            let l_date = &line[0..5];
-            // split line by space or double space for 6 parts
-            let others = &line[6..];
-            let mut split_indexes = Vec::new();
-            let mut last_is_space = true;
-            for (i, c) in others.chars().enumerate() {
-                if c != ' ' {
-                    if last_is_space {
-                        split_indexes.push(i);
-                    }
-                    last_is_space = false;
-                } else {
-                    if !last_is_space {
-                        split_indexes.push(i);
-                    }
-                    last_is_space = true;
-                }
-                if split_indexes.len() == 11 {
-                    break;
-                }
-            }
-            if split_indexes.len() < 11 {
-                layout_job.append(line, 0.0, egui::TextFormat {
-                    font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                    color: egui::Color32::GRAY,
-                    ..Default::default()
-                });
-                layout_job.append("\n", 0.0, egui::TextFormat::default());
-                continue;
-            }
-
-            let l_time = &others[split_indexes[0]..split_indexes[1]];
-            let l_pid = &others[split_indexes[2]..split_indexes[3]];
-            // ensure pid length is 5
-            let l_pid = format!("{: <width$}", l_pid, width = 5);
-            let l_pid = l_pid.as_str();
-            let l_tid = &others[split_indexes[4]..split_indexes[5]];
-            // ensure tid length is 5
-            let l_tid = format!("{: <width$}", l_tid, width = 5);
-            let l_tid = l_tid.as_str();
-
-            let l_level = &others[split_indexes[6]..split_indexes[7]];
-            let l_tag = &others[split_indexes[8]..split_indexes[9]].trim_end_matches(":");
-            // limit tag length and extend it with spaces
-            let limit = 20;
-            let l_tag = format!("{: <width$}", l_tag, width = limit);
-            let l_tag = l_tag.as_str();
-
-            let l_message = &others[split_indexes[10]..];
-
-            let data_color = egui::Color32::from_rgb(0x66, 0x99, 0x99);
-            let time_color = egui::Color32::from_rgb(0x33, 0x99, 0x99);
-            let pid_color = egui::Color32::from_rgb(0xcc, 0xcc, 0xcc);
-            let tid_color = egui::Color32::from_rgb(0x99, 0xcc, 0x99);
-
-            let tag_color = adbx::get_color_from_string(l_tag);
-            let color = match l_level.chars().nth(0).unwrap() {
-                'V' => egui::Color32::LIGHT_GRAY,
-                'D' => egui::Color32::LIGHT_BLUE,
-                'I' => egui::Color32::WHITE,
-                'W' => egui::Color32::YELLOW,
-                'E' => egui::Color32::LIGHT_RED,
-                _ => egui::Color32::LIGHT_GRAY,
-            };
-
-            layout_job.append(l_date, 0.0, egui::TextFormat {
-                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                color: data_color,
-                ..Default::default()
-            });
-            layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-            layout_job.append(l_time, 0.0, egui::TextFormat {
-                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                color: time_color,
-                ..Default::default()
-            });
-            layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-            layout_job.append(l_pid, 0.0, egui::TextFormat {
-                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                color: pid_color,
-                ..Default::default()
-            });
-            layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-            layout_job.append(l_tid, 0.0, egui::TextFormat {
-                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                color: tid_color,
-                ..Default::default()
-            });
-            layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-            layout_job.append(l_tag, 0.0, egui::TextFormat {
-                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                italics: true,
-                color: tag_color,
-                ..Default::default()
-            });
-            layout_job.append("  ", 0.0, egui::TextFormat::default());
-
-            layout_job.append(l_message, 0.0, egui::TextFormat {
-                font_id: egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                color,
-                ..Default::default()
-            });
-
-            layout_job.append("\n", 0.0, egui::TextFormat::default());
-        }
-        layout_job
-    }
-}
-
 struct MyEguiApp {
     adb_path: String,
     adb_devices: Vec<String>,
-    adb_logcat_out_handle: Option<Arc<Mutex<Vec<u8>>>>,
-    adb_logcat_out_buffer: String,
     selected_device: usize,
     time_point: SystemTime,
     frame_count: usize,
     last_fps: usize,
     frame_limit: usize,
 
-    highlighter: MyHighlighter,
+    adb_logcat_worker: Option<LogcatWorker>,
+    filter_buffer: String,
+
+    demo: egui_demo_lib::DemoWindows,
 }
 
 impl MyEguiApp {
@@ -199,22 +49,28 @@ impl MyEguiApp {
         // for e.g. egui::PaintCallback.
 
         // set adb path
-        let adb_path = "platform-tools/adb.exe";
+        let buildin_adb_path = "platform-tools/adb.exe";
+        // convert adb path to absolute path
+        // let adb_path = match std::fs::canonicalize(buildin_adb_path) {
+        //     Ok(path) => path.to_string_lossy().to_string(),
+        //     Err(_) => buildin_adb_path.to_string(),
+        // };
+        let adb_path = buildin_adb_path.to_string();
         // get adb devices
-        let adb_devices = adbx::get_adb_devices(adb_path);
+        let adb_devices = adbx::get_adb_devices(adb_path.as_str());
 
         MyEguiApp {
-            adb_path: adb_path.to_string(),
+            adb_path,
             adb_devices,
-            adb_logcat_out_handle: None,
-            adb_logcat_out_buffer: String::with_capacity(1024 * 1024 * 4),
             selected_device: 0,
             time_point: SystemTime::now(),
             frame_count: 0,
             last_fps: 0,
             frame_limit: 60,
+            adb_logcat_worker: None,
+            filter_buffer: String::new(),
 
-            highlighter: MyHighlighter::new(),
+            demo: egui_demo_lib::DemoWindows::default(),
         }
     }
 
@@ -234,9 +90,8 @@ impl MyEguiApp {
         }
         if &last_device != new_device.unwrap() {
             println!("device changed");
-            self.adb_logcat_out_buffer.clear();
             self.selected_device = 0;
-            self.adb_logcat_out_handle = None;
+            self.adb_logcat_worker = None;
             return false;
         }
         true
@@ -245,6 +100,10 @@ impl MyEguiApp {
 
 impl App for MyEguiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        //self.demo.ui(ctx);
+
+        //return;
+
         let time_point = SystemTime::now();
 
         self.frame_count += 1;
@@ -254,6 +113,7 @@ impl App for MyEguiApp {
             self.time_point = SystemTime::now();
             self.frame_count = 0;
         }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.frame_count % 120 == 0 {
                 //self.check_adb_devices();
@@ -295,17 +155,18 @@ impl App for MyEguiApp {
                             self.check_adb_devices();
                             if i != self.selected_device {
                                 self.selected_device = i;
-                                self.adb_logcat_out_buffer.clear();
-                                self.adb_logcat_out_handle = None;
+                                self.adb_logcat_worker = None;
                             }
                         }
                     }
                 });
 
+            let mut scoll_to_bottom = false;
+
             egui::Grid
                 ::new("logcat_grid")
                 .min_col_width(10.0)
-                .max_col_width(100.0)
+                .max_col_width(150.0)
                 .striped(true)
                 .spacing(egui::vec2(10.0, 10.0))
                 .show(ui, |ui| {
@@ -315,124 +176,55 @@ impl App for MyEguiApp {
                             return;
                         }
                         // if out is none, call adb logcat
-                        if self.adb_logcat_out_handle.is_none() {
-                            // run adb logcat
-                            self.adb_logcat_out_handle = adbx::get_adb_logcat_handler(
-                                &self.adb_path,
-                                &self.adb_devices[self.selected_device]
-                            );
+                        if self.adb_logcat_worker.is_none() {
                             // print command
                             println!(
                                 "> {} -s {} logcat",
                                 &self.adb_path,
                                 &self.adb_devices[self.selected_device]
                             );
+                            // run adb logcat
+                            self.adb_logcat_worker = Some(
+                                LogcatWorker::new(&self.adb_devices[self.selected_device])
+                            );
+                            self.adb_logcat_worker.as_mut().unwrap().connect(&self.adb_path);
                         }
                     }
                     // call logcat -c
                     if ui.button("Clear Logcat").clicked() {
-                        if !self.check_adb_devices() {
+                        if !self.check_adb_devices() || self.adb_logcat_worker.is_none() {
                             return;
                         }
-                        // run adb logcat
-                        adbx::clear_adb_logcat(
-                            &self.adb_path,
-                            &self.adb_devices[self.selected_device]
-                        );
-                        self.adb_logcat_out_buffer.clear();
-                        // print command
                         println!(
                             "> {} -s {} logcat -c",
                             &self.adb_path,
                             &self.adb_devices[self.selected_device]
                         );
+                        self.adb_logcat_worker.as_mut().unwrap().clear(&self.adb_path);
                     }
                     //show a text edit to fliter logcat
-                    ui.text_edit_singleline(&mut self.highlighter.fliter_buffer);
+                    ui.text_edit_singleline(&mut self.filter_buffer);
                     if ui.button("Fliter").clicked() {
-                        if self.highlighter.fliter_buffer.is_empty() {
-                            self.highlighter.fliter = None;
+                        // option string if filter is empty
+                        let fliter = if self.filter_buffer.is_empty() {
+                            None
                         } else {
-                            self.highlighter.fliter = Some(self.highlighter.fliter_buffer.clone());
-                        }
+                            Some(self.filter_buffer.clone())
+                        };
+                        self.adb_logcat_worker.as_mut().unwrap().set_fliter(fliter);
+                        println!("set fliter: {}", self.filter_buffer);
                     }
+                    // show a button to scroll to bottom
+                    scoll_to_bottom |= ui.button("Scroll Bottom").clicked();
                 });
 
-            if self.adb_logcat_out_handle.is_some() {
-                // show the output of adb logcat
-                let out = self.adb_logcat_out_handle.as_ref().unwrap();
-                let mut vec = out.lock().expect("!lock");
-                //println!("vec.len(): {}", vec.len());
-                let text = unsafe { String::from_utf8_unchecked(vec.clone()) };
-                self.adb_logcat_out_buffer.push_str(&text);
-                //println!("buffer len: {}", self.adb_logcat_out_buffer.len());
-                vec.clear();
+            ui.separator();
+
+            if let Some(worker) = self.adb_logcat_worker.as_mut() {
+                worker.show(ui, scoll_to_bottom);
             }
 
-            // egui::ScrollArea
-            //     ::vertical()
-            //     .auto_shrink([true, true])
-            //     .stick_to_bottom(true)
-            //     .show(ui, |ui| {
-            //         let mut style = egui::Style::default();
-            //         style.visuals.dark_mode = true;
-            //         ui.set_style(style);
-            //         ui.add(
-            //             egui::TextEdit
-            //                 ::multiline(&mut self.adb_logcat_out_buffer)
-            //                 .desired_width(ui.available_width())
-            //                 .layouter(&mut layouter)
-            //         );
-            //     });
-
-            //             egui_code_editor::CodeEditor::default()
-            //   .id_source("code editor")
-            //   .with_rows(12)
-            //   .with_fontsize(14.0)
-            //   .with_numlines(false)
-            //   .show(ui, &mut self.adb_logcat_out_buffer);
-            let row_height = 14.0;
-            let total_rows = self.highlighter.line_count + 1;
-
-            let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                let mut layout_job = self.highlighter.highlighter(string);
-                layout_job.wrap.max_width = wrap_width;
-
-                ui.fonts(|f| f.layout_job(layout_job))
-            };
-            egui::ScrollArea
-                ::vertical()
-                .auto_shrink([false, false])
-                .stick_to_bottom(true)
-                .show_rows(ui, row_height, total_rows, |ui, row_range| {
-                    let mut text_show = String::new();
-
-                    //ui.selectable_label(checked, text);
-
-                    for line in self.adb_logcat_out_buffer
-                        .lines()
-                        .skip(row_range.start)
-                        .take(row_range.end - row_range.start) {
-                        text_show.push_str(line);
-                        text_show.push_str("\n");
-                        //let wt: egui::WidgetText = layouter(ui, line, ui.available_width()).into();
-                        //ui.label(wt);
-                        // let mut line = line.to_string();
-                        // let st: egui::Response = ui.add(
-                        //     egui::TextEdit
-                        //         ::singleline(&mut line.as_ref())
-                        //         .desired_width(ui.available_width())
-                        //         .layouter(&mut layouter)
-                        //);
-                    }
-
-                    ui.add(
-                        egui::TextEdit
-                            ::multiline(&mut text_show)
-                            .desired_width(ui.available_width())
-                            .layouter(&mut layouter)
-                    );
-                });
+            ui.separator();
         });
 
         // if time is not up to 1/60 second, then wait
@@ -440,8 +232,12 @@ impl App for MyEguiApp {
         let time_abundance = 1.0 / (self.frame_limit as f32) - time_elapsed.as_secs_f32();
         if time_abundance > 0.01 {
             //println!("time_used: {}, time_abundance: {}", time_elapsed.as_secs_f32(), time_abundance);
-            std::thread::sleep(std::time::Duration::from_secs_f32(time_abundance - 0.01));
+            //std::thread::sleep(std::time::Duration::from_secs_f32(time_abundance-0.01));
         }
         ctx.request_repaint();
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        println!("on_exit");
     }
 }
