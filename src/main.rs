@@ -139,19 +139,19 @@ impl MyEguiApp {
                             break;
                         }
                     }
-                    //to = to.min(logs.len());
+                    to = to.min(logs.len() - 1);
 
                     let mut actual_top = 0.0;
                     if from != 0 {
                         actual_top = logs
                             .get(from - 1)
                             .map(|l| l.bottom)
-                            .unwrap_or(0.0);
+                            .expect("error from index");
                     }
                     let actual_bottom = logs
                         .get(to)
                         .map(|l| l.bottom)
-                        .unwrap_or(0.0);
+                        .expect("error end index");
 
                     let y_min = ui.max_rect().top() + actual_top;
                     let y_max = ui.max_rect().top() + actual_bottom;
