@@ -3,6 +3,7 @@ use std::thread::JoinHandle;
 use std::io::Read;
 
 use crate::highlighter::MyHighlighter;
+use crate::log::ColorLog;
 
 pub struct LogcatWorker {
     device_name: String,
@@ -11,7 +12,8 @@ pub struct LogcatWorker {
     logcat_buffer: Option<Arc<Mutex<Vec<u8>>>>,
     highlighter: MyHighlighter,
     filter: Option<String>,
-    logs: Vec<Arc<egui::Galley>>,
+    //logs: Vec<Arc<egui::Galley>>,
+    logs: Vec<ColorLog>,
 }
 
 impl LogcatWorker {
@@ -137,29 +139,38 @@ impl LogcatWorker {
         let string = unsafe { String::from_utf8_unchecked(vec) };
 
         let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-            let mut layout_job = self.highlighter.highlighter(string);
+            let (mut layout_job, log) = self.highlighter.highlighter(string);
             layout_job.wrap.max_width = wrap_width;
 
             let g = ui.fonts(|f| f.layout_job(layout_job));
+
+            let color_log = ColorLog {
+                raw: log,
+                gallery: g.clone(),
+                bottom: 0.0,
+            };
             //println!("g rows{:?}", g.rows.len());
-            return g;
+            return color_log;
         };
 
         for line in string.lines() {
-            let g = layouter(ui, line, ui.available_width());
-            self.logs.push(g);
+            let mut log = layouter(ui, line, ui.available_width());
+            let height = log.gallery.rect.height() + ui.style().spacing.item_spacing.y;
+            let last_bottom = self.logs
+                .last()
+                .map(|l| l.bottom)
+                .unwrap_or(0.0);
+            log.bottom = last_bottom + height;
+            self.logs.push(log);
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, scoll_to_bottom: bool) {
-        self.update(ui);
-
-        let mut total_height = 0.0;
+    pub fn get_logs(&mut self) -> Vec<&ColorLog> {
         let mut logs_show = Vec::new();
-        for g in self.logs.iter() {
+        for log in self.logs.iter() {
             if self.filter.is_some() {
                 let filter = self.filter.as_ref().unwrap();
-                let text = g.text();
+                let text = log.raw.origin.as_str();
                 if !text.contains(filter) {
                     continue;
                 }
@@ -172,68 +183,10 @@ impl LogcatWorker {
             //     let new_g = ui.fonts(|f| f.layout_job(job));
             //     *g = new_g;
             // }
-            total_height += g.rect.height() + ui.style().spacing.item_spacing.y;
-            logs_show.push(g.clone());
+            logs_show.push(log);
         }
 
-        egui::ScrollArea
-            ::vertical()
-            .auto_shrink([false, false])
-            .stick_to_bottom(true)
-            .show_viewport(ui, |ui, viewport| {
-                let top = viewport.top();
-                let bottom = viewport.bottom();
-                //println!("top: {}, bottom: {}", top, bottom);
-                let mut from = 0;
-                let mut to = 0;
-                let mut height = 0.0;
-                let mut y_min = ui.max_rect().top();
-                let mut y_max = ui.max_rect().top();
-                let spacing = ui.style().spacing.item_spacing.y;
-                for (i, g) in logs_show.iter().enumerate() {
-                    let h = g.rect.height() + spacing;
-                    height += h;
-                    if height < top {
-                        continue;
-                    }
-                    if from == 0 && top != 0.0 {
-                        from = i;
-                        y_min += height - h;
-                    }
-                    if height > bottom {
-                        to = i;
-                        y_max += height;
-                        break;
-                    }
-                }
-                if to == 0 {
-                    to = logs_show.len().saturating_sub(1);
-                }
-                ui.set_height(total_height - spacing);
-                //println!("from: {}, to: {}", from, to);
-                //println!("y_min: {}, y_max: {}, total_height: {}", y_min, y_max, total_height);
-                let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-                ui.allocate_ui_at_rect(rect, |ui| {
-                    //ui.skip_ahead_auto_ids(from);
-                    for (i, g) in logs_show.iter().enumerate() {
-                        if i < from {
-                            continue;
-                        } else if i > to {
-                            break;
-                        }
-                        let wt = egui::WidgetText::from(g.clone());
-                        let label = egui::Label::new(wt);
-                        ui.add(label);
-                    }
-                });
-                if scoll_to_bottom {
-                    let bottom_rect = egui::Rect::from_x_y_ranges(
-                        ui.max_rect().x_range(),
-                        0.0..=total_height
-                    );
-                    ui.scroll_to_rect(bottom_rect, Some(egui::Align::BOTTOM));
-                }
-            });
+        logs_show
     }
 }
 

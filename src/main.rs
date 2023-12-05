@@ -96,6 +96,97 @@ impl MyEguiApp {
         }
         true
     }
+
+    pub fn show_logcat(&mut self, ui: &mut egui::Ui, scoll_to_bottom: bool) {
+        if let Some(worker) = self.adb_logcat_worker.as_mut() {
+            worker.update(ui);
+            let logs = worker.get_logs();
+            if logs.len() <= 0 {
+                return;
+            }
+            egui::ScrollArea
+                ::vertical()
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .show_viewport(ui, |ui, viewport| {
+                    let top = viewport.top();
+                    let bottom = viewport.bottom();
+
+                    let spacing = ui.style().spacing.item_spacing.y;
+                    let total_height = logs
+                        .last()
+                        .map(|l| l.bottom)
+                        .unwrap_or(spacing);
+                    ui.set_height(total_height - spacing);
+
+                    let from = match
+                        logs.binary_search_by(|&l| l.bottom.partial_cmp(&top).unwrap())
+                    {
+                        Ok(index) => index + 1,
+                        Err(index) => index,
+                    };
+
+                    // let to = match
+                    //     logs.binary_search_by(|&l| l.bottom.partial_cmp(&bottom).unwrap())
+                    // {
+                    //     Ok(index) => index,
+                    //     Err(index) => index,
+                    // };
+                    let mut to = from;
+                    for (i, log) in logs[from..].iter().enumerate() {
+                        if log.bottom >= bottom {
+                            to += i;
+                            break;
+                        }
+                    }
+                    //to = to.min(logs.len());
+
+                    let mut actual_top = 0.0;
+                    if from != 0 {
+                        actual_top = logs
+                            .get(from - 1)
+                            .map(|l| l.bottom)
+                            .unwrap_or(0.0);
+                    }
+                    let actual_bottom = logs
+                        .get(to)
+                        .map(|l| l.bottom)
+                        .unwrap_or(0.0);
+
+                    let y_min = ui.max_rect().top() + actual_top;
+                    let y_max = ui.max_rect().top() + actual_bottom;
+                    let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+
+                    // println!("top: {}, bottom: {}", top, bottom);
+                    // println!("len: {}", logs.len());
+                    // println!("actual_top: {}, actual_bottom: {}", actual_top, actual_bottom);
+                    // println!("from: {}, to: {}", from, to);
+                    // println!(
+                    //     "y_min: {}, y_max: {}, total_height: {}",
+                    //     y_min,
+                    //     y_max,
+                    //     total_height
+                    // );
+
+                    ui.allocate_ui_at_rect(rect, |ui| {
+                        //ui.skip_ahead_auto_ids(from);
+                        for log in logs[from..=to].iter() {
+                            let wt = egui::WidgetText::from(log.gallery.clone());
+                            let label = egui::Label::new(wt);
+                            ui.add(label);
+                        }
+                    });
+
+                    if scoll_to_bottom {
+                        let bottom_rect = egui::Rect::from_x_y_ranges(
+                            ui.max_rect().x_range(),
+                            0.0..=total_height
+                        );
+                        ui.scroll_to_rect(bottom_rect, Some(egui::Align::BOTTOM));
+                    }
+                });
+        }
+    }
 }
 
 impl App for MyEguiApp {
@@ -219,11 +310,7 @@ impl App for MyEguiApp {
                 });
 
             ui.separator();
-
-            if let Some(worker) = self.adb_logcat_worker.as_mut() {
-                worker.show(ui, scoll_to_bottom);
-            }
-
+            self.show_logcat(ui, scoll_to_bottom);
             ui.separator();
         });
 
@@ -234,7 +321,9 @@ impl App for MyEguiApp {
             //println!("time_used: {}, time_abundance: {}", time_elapsed.as_secs_f32(), time_abundance);
             //std::thread::sleep(std::time::Duration::from_secs_f32(time_abundance-0.01));
         }
-        ctx.request_repaint();
+        if !ctx.has_requested_repaint() {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f32(0.5));
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
