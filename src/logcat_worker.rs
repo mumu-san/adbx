@@ -10,6 +10,7 @@ pub struct LogcatWorker {
     logcat_sender: Option<std::process::Child>,
     logcat_receiver: Option<JoinHandle<()>>,
     logcat_buffer: Option<Arc<Mutex<Vec<u8>>>>,
+    pending_strings: Vec<String>,
     highlighter: MyHighlighter,
     filter: Option<String>,
     //logs: Vec<Arc<egui::Galley>>,
@@ -25,6 +26,7 @@ impl LogcatWorker {
             logcat_sender: None,
             logcat_receiver: None,
             logcat_buffer: None,
+            pending_strings: Vec::new(),
             highlighter: MyHighlighter::new(),
             filter: None,
             logs: Vec::new(),
@@ -120,6 +122,7 @@ impl LogcatWorker {
             return;
         }
         self.logs.clear();
+        self.pending_strings.clear();
     }
 
     pub fn set_fliter(&mut self, filter: Option<String>) {
@@ -131,12 +134,17 @@ impl LogcatWorker {
             return;
         }
         let mut buffer = self.logcat_buffer.as_ref().unwrap().lock().expect("!lock");
-        if buffer.len() == 0 {
+        if buffer.len() > 0 {
+            let mut vec = Vec::new();
+            std::mem::swap(&mut vec, &mut buffer);
+            let string = unsafe { String::from_utf8_unchecked(vec) };
+            for line in string.lines() {
+                self.pending_strings.push(line.to_string());
+            }
+        }
+        if self.pending_strings.len() == 0 {
             return;
         }
-        let mut vec = Vec::new();
-        std::mem::swap(&mut vec, &mut buffer);
-        let string = unsafe { String::from_utf8_unchecked(vec) };
 
         let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
             let (mut layout_job, log) = self.highlighter.highlighter(string);
@@ -153,7 +161,12 @@ impl LogcatWorker {
             return color_log;
         };
 
-        for line in string.lines() {
+        let mut start_index = 0;
+        if self.pending_strings.len() < 30 {
+            start_index = self.pending_strings.len() - self.pending_strings.len() / 10 - 1;
+        }
+
+        for line in self.pending_strings[start_index..].iter() {
             let mut log = layouter(ui, line, ui.available_width());
             let height = log.gallery.rect.height() + ui.style().spacing.item_spacing.y;
             let last_bottom = self.logs
@@ -163,6 +176,9 @@ impl LogcatWorker {
             log.bottom = last_bottom + height;
             self.logs.push(log);
         }
+        // remove used pending strings
+        self.pending_strings.drain(start_index..);
+        //println!("left {}", self.pending_strings.len());
     }
 
     pub fn get_logs(&mut self) -> Vec<&ColorLog> {

@@ -169,11 +169,37 @@ impl MyEguiApp {
                     // );
 
                     ui.allocate_ui_at_rect(rect, |ui| {
+                        let s_click = ui.interact(
+                            rect,
+                            egui::Id::new("logcat_scroll"),
+                            egui::Sense::click_and_drag()
+                        );
+                        // get hovered rect
+                        let pos = s_click.hover_pos();
                         //ui.skip_ahead_auto_ids(from);
                         for log in logs[from..=to].iter() {
                             let wt = egui::WidgetText::from(log.gallery.clone());
                             let label = egui::Label::new(wt);
-                            ui.add(label);
+                            let res = ui.add(label);
+
+                            let log_rect = egui::Rect::from_x_y_ranges(
+                                rect.x_range(),
+                                res.rect.y_range()
+                            );
+
+                            if pos.is_some() && log_rect.contains(pos.unwrap()) {
+                                ui.painter().rect_filled(
+                                    log_rect,
+                                    3.0,
+                                    egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
+                                );
+                                //println!("hovered: {}", log.gallery.text());
+                                if s_click.clicked() {
+                                    println!("{}", log.raw.origin);
+                                    // to copy text to clipboard
+                                    ui.ctx().copy_text(log.raw.origin.clone());
+                                }
+                            }
                         }
                     });
 
