@@ -37,6 +37,8 @@ struct MyEguiApp {
 
     adb_logcat_worker: Option<LogcatWorker>,
     filter_buffer: String,
+    selected_indexes: Vec<usize>,
+    clear_flag: bool,
 
     demo: egui_demo_lib::DemoWindows,
 }
@@ -69,6 +71,8 @@ impl MyEguiApp {
             frame_limit: 60,
             adb_logcat_worker: None,
             filter_buffer: String::new(),
+            selected_indexes: Vec::new(),
+            clear_flag: false,
 
             demo: egui_demo_lib::DemoWindows::default(),
         }
@@ -174,31 +178,85 @@ impl MyEguiApp {
                             egui::Id::new("logcat_scroll"),
                             egui::Sense::click_and_drag()
                         );
+
                         // get hovered rect
                         let pos = s_click.hover_pos();
+                        if s_click.clicked_by(egui::PointerButton::Primary) {
+                            self.selected_indexes.clear();
+                        }
+                        if self.clear_flag && s_click.drag_delta().y.abs() > 1.0 {
+                            self.selected_indexes.clear();
+                            self.clear_flag = false;
+                        }
+                        if s_click.drag_released() {
+                            self.clear_flag = true;
+                        }
+
+                        let mut seleced_rect: Option<egui::Rect> = None;
+                        let mut current_log = None;
+
                         //ui.skip_ahead_auto_ids(from);
-                        for log in logs[from..=to].iter() {
+                        for (ri, log) in logs[from..=to].iter().enumerate() {
                             let wt = egui::WidgetText::from(log.gallery.clone());
                             let label = egui::Label::new(wt);
                             let res = ui.add(label);
+                            let index = from + ri;
 
                             let log_rect = egui::Rect::from_x_y_ranges(
                                 rect.x_range(),
                                 res.rect.y_range()
                             );
 
-                            if pos.is_some() && log_rect.contains(pos.unwrap()) {
-                                ui.painter().rect_filled(
-                                    log_rect,
-                                    3.0,
-                                    egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
-                                );
-                                //println!("hovered: {}", log.gallery.text());
-                                if s_click.clicked() {
-                                    println!("{}", log.raw.origin);
-                                    // to copy text to clipboard
-                                    ui.ctx().copy_text(log.raw.origin.clone());
+                            if pos.is_some() {
+                                if log_rect.contains(pos.unwrap()) {
+                                    if s_click.drag_delta().y.abs() > 1.0 {
+                                        if let Some(&last) = self.selected_indexes.last() {
+                                            if last != index {
+                                                let should_push =
+                                                    self.selected_indexes.len() <= 1 ||
+                                                    (self.selected_indexes[0] <
+                                                        self.selected_indexes[1]) ==
+                                                        (last < index);
+                                                if should_push {
+                                                    self.selected_indexes.push(index);
+                                                } else {
+                                                    self.selected_indexes.pop();
+                                                }
+                                            }
+                                        } else {
+                                            self.selected_indexes.push(index);
+                                        }
+                                    } else {
+                                        ui.painter().rect_filled(
+                                            log_rect,
+                                            3.0,
+                                            egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
+                                        );
+                                        current_log = Some(log);
+                                    }
                                 }
+                            }
+
+                            if self.selected_indexes.contains(&index) {
+                                if seleced_rect.is_none() {
+                                    seleced_rect = Some(log_rect);
+                                } else {
+                                    seleced_rect = Some(seleced_rect.unwrap().union(log_rect));
+                                }
+                            }
+                        }
+
+                        if seleced_rect.is_some() {
+                            ui.painter().rect_filled(
+                                seleced_rect.unwrap(),
+                                3.0,
+                                egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
+                            );
+                        }
+
+                        if s_click.clicked_by(egui::PointerButton::Secondary) {
+                            if current_log.is_some(){
+                                println!("right click: {}", current_log.unwrap().raw.origin);
                             }
                         }
                     });
