@@ -253,11 +253,26 @@ impl MyEguiApp {
                                 egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
                             );
                         }
-
-                        if s_click.clicked_by(egui::PointerButton::Secondary) {
-                            if current_log.is_some(){
-                                println!("right click: {}", current_log.unwrap().raw.origin);
-                            }
+                        if self.selected_indexes.len() > 0 {
+                            s_click.context_menu(|ui| {
+                                // add a button to copy
+                                if ui.button("Copy").clicked() {
+                                    let mut text = String::new();
+                                    for index in self.selected_indexes.iter() {
+                                        let log = logs.get(*index).unwrap();
+                                        text.push_str(log.raw.origin.as_str());
+                                        text.push_str("\n");
+                                    }
+                                    ui.ctx().copy_text(text);
+                                    // close the menu
+                                    ui.close_menu();
+                                }
+                                if ui.button("Copy Free").clicked(){
+                                    egui::Window::new("My Window").show(ui.ctx(), |ui| {
+                                        ui.label("Hello World!");
+                                     });
+                                }
+                            });
                         }
                     });
 
