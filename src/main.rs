@@ -39,6 +39,7 @@ struct MyEguiApp {
     filter_buffer: String,
     selected_indexes: Vec<usize>,
     clear_flag: bool,
+    lock_flag: bool,
 
     demo: egui_demo_lib::DemoWindows,
 }
@@ -73,6 +74,7 @@ impl MyEguiApp {
             filter_buffer: String::new(),
             selected_indexes: Vec::new(),
             clear_flag: false,
+            lock_flag: false,
 
             demo: egui_demo_lib::DemoWindows::default(),
         }
@@ -193,7 +195,6 @@ impl MyEguiApp {
                         }
 
                         let mut seleced_rect: Option<egui::Rect> = None;
-                        let mut current_log = None;
 
                         //ui.skip_ahead_auto_ids(from);
                         for (ri, log) in logs[from..=to].iter().enumerate() {
@@ -230,9 +231,12 @@ impl MyEguiApp {
                                         ui.painter().rect_filled(
                                             log_rect,
                                             3.0,
-                                            egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
+                                            egui::Color32::from_rgba_unmultiplied(80, 80, 80, 30)
                                         );
-                                        current_log = Some(log);
+                                        if !self.lock_flag && self.selected_indexes.len() <= 1 {
+                                            self.selected_indexes.clear();
+                                            self.selected_indexes.push(index);
+                                        }
                                     }
                                 }
                             }
@@ -250,11 +254,13 @@ impl MyEguiApp {
                             ui.painter().rect_filled(
                                 seleced_rect.unwrap(),
                                 3.0,
-                                egui::Color32::from_rgba_unmultiplied(80, 80, 80, 45)
+                                egui::Color32::from_rgba_unmultiplied(80, 80, 80, 30)
                             );
                         }
                         if self.selected_indexes.len() > 0 {
+                            self.lock_flag = false;
                             s_click.context_menu(|ui| {
+                                self.lock_flag = true;
                                 // add a button to copy
                                 if ui.button("Copy").clicked() {
                                     let mut text = String::new();
@@ -267,11 +273,11 @@ impl MyEguiApp {
                                     // close the menu
                                     ui.close_menu();
                                 }
-                                if ui.button("Copy Free").clicked(){
-                                    egui::Window::new("My Window").show(ui.ctx(), |ui| {
-                                        ui.label("Hello World!");
-                                     });
-                                }
+                                // if ui.button("Copy Free").clicked(){
+                                //     egui::Window::new("My Window").show(ui.ctx(), |ui| {
+                                //         ui.label("Hello World!");
+                                //      });
+                                // }
                             });
                         }
                     });
